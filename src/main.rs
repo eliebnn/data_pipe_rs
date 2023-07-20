@@ -11,7 +11,7 @@ use chrono::Utc;
 use futures_util::SinkExt;
 
 type Tx = futures_util::stream::SplitSink<WebSocketStream<TcpStream>, Message>;
-type PeerMap = Arc<Mutex<HashMap<String, Tx>>>;
+type PeerMap = Arc<Mutex<HashMap<String, (Tx, Vec<String>)>>>;
 
 #[tokio::main]
 async fn main() {
@@ -28,40 +28,130 @@ async fn main() {
     }
 }
 
-async fn accept_connection(state: PeerMap, raw_stream: TcpStream) {
-
+async fn accept_connection(state: PeerMap, raw_stream: tokio::net::TcpStream) {
+    
+    let channels = ["channel1".to_string(), "channel2".to_string()];
     let addr = raw_stream.peer_addr().unwrap().to_string();
+
     let ws_stream = accept_async(raw_stream).await.expect("Failed to accept");
-    let (tx, _rx) = ws_stream.split();
+    let (tx, mut rx) = ws_stream.split();
 
-    state.lock().await.insert(addr.clone(), tx);
+    state.lock().await.insert(addr.clone(), (tx, vec![]));
 
-    let mut interval = interval_at(Instant::now() + Duration::from_secs(5), Duration::from_secs(5));
+    tokio::spawn(async move {
+        let mut interval = interval_at(Instant::now() + Duration::from_secs(5), Duration::from_secs(5));
+        loop {
 
-    // Sending a message every 5 seconds to the client
-    loop {
-        tokio::select! {
-            _ = interval.tick() => {
+            tokio::select! {
 
-                let m = format!("{}: {}", Utc::now(), &addr);
-                let msg = Message::Text(m.to_string());
+                // Handling Subscriptions messaging
 
-                let mut clients = state.lock().await;
+                _ = interval.tick() => {
 
-                if let Some(client) = clients.get_mut(&addr) {
-                    println!("Sending to {}", &addr);
+                    let mut clients = state.lock().await;
 
-                    if let Err(_e) = 
-                    client.send(msg.clone()).await {
-                        println!("Failed to send message to {}", &addr);
-                        println!("Closing the Stream.");
+                    if let Some(client) = clients.get_mut(&addr) {
 
-                        clients.remove(&addr);
-
-                        break;
+                        match handle_channel1(&mut client.0, &client.1, &addr).await {
+                            Some(_) => {println!("Sending channel1 to {}", &addr);},
+                            None => {
+                                println!("------------\r\nFailed to send message to {}", &addr);
+                                println!("Closing the Stream.");
+                                clients.remove(&addr);
+                                break;
+                            }
+                        }
+                        match handle_channel2(&mut client.0, &client.1, &addr).await {
+                            Some(_) => {println!("Sending channel2 to {}", &addr);},
+                            None => {
+                                println!("------------\r\nFailed to send message to {}", &addr);
+                                println!("Closing the Stream.");
+                                clients.remove(&addr);
+                                break;
+                            }
+                        }
                     }
                 }
+
+                // Handling coming messages
+
+                msg = rx.next() => {
+
+                    match msg {
+                        Some(Ok(value)) => {
+                            // Getting a subscription message
+                            println!("Subscription attempt: `{}`", value.clone());
+
+                            if channels.contains(&value.to_string()) {
+
+                                let mut clients = state.lock().await;
+
+                                if let Some(client) = clients.get_mut(&addr){
+                                    println!("Valid Subscription: `{}`", value.clone());
+                                    client.1.push(value.to_string())
+
+                                }
+                            }
+                        },
+                        _ => {
+                            // Getting a connection closed message
+                            println!("WebSocket closed for {}", &addr);
+                            state.lock().await.remove(&addr);
+                            break;
+                        }
+                    };
+                }
+                
             }
         }
-    }
+    });
 }
+
+async fn handle_channel1(client_tx: &mut Tx, client_channels: &Vec<String>, addr: &String) -> Option<bool>{
+
+    let success = if client_channels.contains(&"channel1".to_string()) {
+
+        // Generate Message specific to `channel1`
+        let m = format!("Channel 1 - {}: {}", Utc::now(), addr);
+        let message = Some(Message::Text(m.to_string()));
+
+        match message {
+            Some(to_send) => {
+                if let Err(_e) = client_tx.send(to_send.clone()).await {
+                    println!("Failed to send message to {}", addr);
+                    println!("Error: {}", _e);
+                    false
+                } else {true}
+            },
+            None => true,
+        }
+
+    } else {true};
+
+    return if success {Some(true)} else {None};
+}
+
+async fn handle_channel2(client_tx: &mut Tx, client_channels: &Vec<String>, addr: &String) -> Option<bool>{
+
+    let success = if client_channels.contains(&"channel2".to_string()) {
+
+        // Generate Message specific to `channel2`
+        let m = format!("Channel 2 - {}: {}", Utc::now(), addr);
+        let message = Some(Message::Text(m.to_string()));
+
+        match message {
+            Some(to_send) => {
+                if let Err(_e) = client_tx.send(to_send.clone()).await {
+                    println!("Failed to send message to {}", addr);
+                    println!("Error: {}", _e);
+                    false
+                } else {true}
+            },
+            None => true,
+        }
+
+    } else {true};
+
+    return if success {Some(true)} else {None};
+}
+

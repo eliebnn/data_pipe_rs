@@ -4,7 +4,8 @@
   <title>WebSocket Demo</title>
 </head>
 <body>
-  <div id="data">Waiting for data...</div>
+  <div id="data1">Waiting for data...</div>
+  <div id="data2">Waiting for data...</div>
 
   <script>
     var ws;
@@ -15,11 +16,18 @@
       ws.onopen = function() {
         console.log('WebSocket connection established');
         ws.send("channel1");
+        ws.send("channel2");
       };
 
       ws.onmessage = function(event) {
         var receivedMsg = event.data;
-        document.getElementById('data').textContent = receivedMsg;
+        if (receivedMsg.includes("Channel 1")){
+          document.getElementById('data1').textContent = receivedMsg;
+        }
+        if (receivedMsg.includes("Channel 2")){
+          document.getElementById('data2').textContent = receivedMsg;
+        }
+        
       };
 
       ws.onclose = function() {
