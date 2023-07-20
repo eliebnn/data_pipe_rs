@@ -55,6 +55,9 @@ async fn accept_connection(state: PeerMap, raw_stream: TcpStream) {
                     client.send(msg.clone()).await {
                         println!("Failed to send message to {}", &addr);
                         println!("Closing the Stream.");
+
+                        clients.remove(&addr);
+
                         break;
                     }
                 }
