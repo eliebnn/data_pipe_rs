@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket Demo</title>
+</head>
+<body>
+  <div id="data">Waiting for data...</div>
+
+  <script>
+    var ws;
+
+    function init() {
+      ws = new WebSocket('ws://localhost:8080');
+
+      ws.onopen = function() {
+        console.log('WebSocket connection established');
+        ws.send("UserID123");
+      };
+
+      ws.onmessage = function(event) {
+        var receivedMsg = event.data;
+        document.getElementById('data').textContent = receivedMsg;
+      };
+
+      ws.onclose = function() {
+        console.log('WebSocket connection closed');
+        setTimeout(init, 1000); // Try to reconnect every 1 second if connection is lost
+      };
+
+      ws.onerror = function(err) {
+        console.log('WebSocket encountered error: ', err.message, 'Closing socket');
+        ws.close();
+      };
+    }
+
+    window.addEventListener('load', init, false);
+  </script>
+</body>
+</html>
